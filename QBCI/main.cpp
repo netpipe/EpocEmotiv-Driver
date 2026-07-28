@@ -1,5 +1,5 @@
 /*****************************************************************
- * OpenBCI LSL Qt Demo with Auto-Scaling Wave Display & FFT Brainwaves
+ * OpenBCI LSL Qt Demo with Auto-Scaling, FFT, and CSV Recording
  * Qt 5.12+ / Qt 6 compatible
  * Single source file
  *
@@ -9,6 +9,7 @@
  *****************************************************************/
 
 #include <QtWidgets>
+#include <QFileDialog>
 #include <QMutex>
 #include <lsl_cpp.h>
 #include <atomic>
@@ -19,6 +20,8 @@
 #include <complex>
 #include <cmath>
 #include <deque>
+#include <fstream>
+#include <iomanip>
 
 // ------------------------------------------------------------------
 // Lightweight In-Place Radix-2 FFT
@@ -144,7 +147,6 @@ protected:
             }
             painter.drawPath(path);
 
-            // FIX: Corrected QString::arg syntax (using %1, %2, %3 instead of printf %.0f)
             painter.setPen(Qt::white);
             painter.setFont(QFont("Arial", 10, QFont::Bold));
             painter.drawText(10, ch * channelHeight + 20,
@@ -218,12 +220,19 @@ private:
 class MainWindow : public QWidget {
 public:
     MainWindow(QWidget *parent = nullptr) : QWidget(parent) {
-        setWindowTitle("OpenBCI LSL Demo with FFT Brainwaves");
+        setWindowTitle("OpenBCI LSL Demo with FFT & CSV Recording");
         resize(1000, 650);
 
         connectButton = new QPushButton("Connect");
         disconnectButton = new QPushButton("Disconnect");
         disconnectButton->setEnabled(false);
+
+        // NEW: Recording Buttons
+        recordButton = new QPushButton("Start Recording");
+        stopRecordButton = new QPushButton("Stop Recording");
+        stopRecordButton->setEnabled(false);
+        recordStatusLabel = new QLabel("Not Recording");
+        recordStatusLabel->setStyleSheet("color: #888; font-weight: bold;");
 
         statusLabel = new QLabel("Disconnected");
         sampleLabel = new QLabel("Samples: 0");
@@ -238,6 +247,10 @@ public:
         auto topLayout = new QHBoxLayout();
         topLayout->addWidget(connectButton);
         topLayout->addWidget(disconnectButton);
+        topLayout->addSpacing(20);
+        topLayout->addWidget(recordButton);
+        topLayout->addWidget(stopRecordButton);
+        topLayout->addWidget(recordStatusLabel);
         topLayout->addStretch();
         topLayout->addWidget(brainwaveIndicator);
 
@@ -253,18 +266,28 @@ public:
         connect(connectButton, &QPushButton::clicked, this, &MainWindow::connectStream);
         connect(disconnectButton, &QPushButton::clicked, this, &MainWindow::disconnectStream);
 
+        // NEW: Connect Recording Buttons
+        connect(recordButton, &QPushButton::clicked, this, &MainWindow::startRecording);
+        connect(stopRecordButton, &QPushButton::clicked, this, &MainWindow::stopRecording);
+
         timer = new QTimer(this);
         connect(timer, &QTimer::timeout, this, &MainWindow::updateDisplay);
         timer->start(50); // 20 FPS GUI update
     }
 
-    ~MainWindow() { disconnectStream(); }
+    ~MainWindow() {
+        if (is_recording) stopRecording();
+        disconnectStream();
+    }
 
 private:
     QPushButton *connectButton;
     QPushButton *disconnectButton;
+    QPushButton *recordButton;
+    QPushButton *stopRecordButton;
     QLabel *statusLabel;
     QLabel *sampleLabel;
+    QLabel *recordStatusLabel;
     WaveDisplayWidget *waveDisplay;
     BrainWaveIndicator *brainwaveIndicator;
     QTextEdit *logWindow;
@@ -274,6 +297,13 @@ private:
     std::thread worker;
     std::atomic<bool> running{false};
     std::atomic<uint64_t> samples{0};
+
+    // NEW: CSV Recording State
+    std::ofstream csv_file;
+    std::mutex csv_mutex;
+    std::atomic<bool> is_recording{false};
+    std::atomic<uint64_t> recorded_samples{0};
+    int current_num_channels = 0;
 
     QMutex fft_mutex;
     std::vector<std::deque<double>> channel_buffers;
@@ -289,6 +319,49 @@ private:
 
     void log(const QString &text) { logWindow->append(text); }
 
+    // ------------------------------------------------------------------
+    // NEW: CSV Recording Functions
+    // ------------------------------------------------------------------
+    void startRecording() {
+        QString filename = QFileDialog::getSaveFileName(this, "Save EEG Data", "eeg_recording.csv", "CSV Files (*.csv);;All Files (*)");
+        if (filename.isEmpty()) return;
+
+        std::lock_guard<std::mutex> lock(csv_mutex);
+        csv_file.open(filename.toStdString());
+        if (!csv_file.is_open()) {
+            QMessageBox::critical(this, "Error", "Could not open file for writing.");
+            return;
+        }
+
+        // Write CSV Header
+        csv_file << "Timestamp";
+        for (int i = 0; i < current_num_channels; ++i) {
+            csv_file << ",CH" << (i + 1);
+        }
+        csv_file << "\n";
+
+        is_recording = true;
+        recorded_samples = 0;
+        recordButton->setEnabled(false);
+        stopRecordButton->setEnabled(true);
+        recordStatusLabel->setText("Recording...");
+        recordStatusLabel->setStyleSheet("color: #4CAF50; font-weight: bold;");
+        log(QString("Started recording to: %1").arg(filename));
+    }
+
+    void stopRecording() {
+        is_recording = false;
+        std::lock_guard<std::mutex> lock(csv_mutex);
+        if (csv_file.is_open()) {
+            csv_file.close();
+        }
+        recordButton->setEnabled(true);
+        stopRecordButton->setEnabled(false);
+        recordStatusLabel->setText(QString("Saved %1 samples").arg(recorded_samples.load()));
+        recordStatusLabel->setStyleSheet("color: #888; font-weight: bold;");
+        log(QString("Stopped recording. Total samples saved: %1").arg(recorded_samples.load()));
+    }
+
     void connectStream() {
         log("Searching for LSL streams...");
         std::vector<lsl::stream_info> streams;
@@ -300,7 +373,6 @@ private:
         QStringList choices;
         for (size_t i = 0; i < streams.size(); ++i) {
             const auto &s = streams[i];
-            // FIX: Corrected QString::arg syntax
             choices << QString("%1 [%2] %3 ch %4 Hz")
                            .arg(QString::fromStdString(s.name()))
                            .arg(QString::fromStdString(s.type()))
@@ -321,6 +393,8 @@ private:
         if (sample_rate <= 0) sample_rate = 128.0;
 
         int numCh = streams[index].channel_count();
+        current_num_channels = numCh; // Save for CSV header
+
         {
             QMutexLocker locker(&fft_mutex);
             channel_buffers.resize(numCh);
@@ -334,7 +408,6 @@ private:
         running = true;
         worker = std::thread(&MainWindow::readerThread, this);
 
-        // FIX: Corrected QString::arg syntax
         statusLabel->setText(QString("Connected: %1 (%2 ch, %3 Hz)")
             .arg(QString::fromStdString(streams[index].name()))
             .arg(numCh)
@@ -342,10 +415,12 @@ private:
 
         connectButton->setEnabled(false);
         disconnectButton->setEnabled(true);
+        recordButton->setEnabled(true); // Enable recording once connected
         log(QString("Connected to '%1'").arg(QString::fromStdString(streams[index].name())));
     }
 
     void disconnectStream() {
+        if (is_recording) stopRecording(); // Auto-stop recording if disconnecting
         if (!running) return;
         running = false;
         if (worker.joinable()) worker.join();
@@ -360,12 +435,11 @@ private:
         statusLabel->setText("Disconnected");
         connectButton->setEnabled(true);
         disconnectButton->setEnabled(false);
+        recordButton->setEnabled(false); // Disable recording when disconnected
         log("Disconnected.");
     }
 
     void processBrainwaves() {
-        // FIX: Removed QMutexLocker here. The caller (readerThread) already holds the lock.
-        // Locking it again would cause a deadlock and freeze the app.
         int numCh = channel_buffers.size();
         if (numCh == 0) return;
 
@@ -396,14 +470,8 @@ private:
             fft(x);
 
             double alphaPower = 0.0, betaPower = 0.0;
-            for (int k = alpha_start; k <= alpha_end; ++k) {
-                double mag = std::abs(x[k]);
-                alphaPower += mag * mag;
-            }
-            for (int k = beta_start; k <= beta_end; ++k) {
-                double mag = std::abs(x[k]);
-                betaPower += mag * mag;
-            }
+            for (int k = alpha_start; k <= alpha_end; ++k) alphaPower += std::norm(x[k]);
+            for (int k = beta_start; k <= beta_end; ++k) betaPower += std::norm(x[k]);
 
             totalAlpha += alphaPower;
             totalBeta += betaPower;
@@ -430,6 +498,20 @@ private:
 
                 waveDisplay->pushSample(sample);
                 samples++;
+
+                // NEW: Write to CSV if recording
+                if (is_recording) {
+                    std::lock_guard<std::mutex> lock(csv_mutex);
+                    if (csv_file.is_open()) {
+                        // Write LSL Timestamp and Channel Data
+                        csv_file << std::fixed << std::setprecision(6) << ts;
+                        for (double val : sample) {
+                            csv_file << "," << val;
+                        }
+                        csv_file << "\n";
+                        recorded_samples++;
+                    }
+                }
 
                 {
                     QMutexLocker locker(&fft_mutex);
@@ -465,6 +547,7 @@ private:
             statusLabel->setText("Connection Lost");
             connectButton->setEnabled(true);
             disconnectButton->setEnabled(false);
+            recordButton->setEnabled(false);
             if (worker.joinable()) worker.join();
             inlet.reset();
             log("Reader thread stopped.");
