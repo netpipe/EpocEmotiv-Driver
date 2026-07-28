@@ -3,9 +3,12 @@
 #include "hidapi/hidapi.h"
 #include "mcrypt/mcrypt.h"
 
-#if defined(__APPLE__) && HID_API_VERSION >= HID_API_MAKE_VERSION(0, 12, 0)
-#include "hidapi_darwin.h"
-#endif
+//gcc epoc_demo.c -lmcrypt -L./ -lhidapi
+//export DYLD_LIBRARY_PATH=./
+
+//#if defined(__APPLE__) && HID_API_VERSION >= HID_API_MAKE_VERSION(0, 12, 0)
+//#include "hidapi_darwin.h"
+//#endif
 
 /*
  * epoc_demo.c
@@ -357,7 +360,7 @@ int main(void)
         printf("hid_init failed\n");
         return 1;
     }
-hid_darwin_set_open_exclusive(0);
+//hid_darwin_set_open_exclusive(0);
 
     hid_device *dev = open_epoc(&epoc);
 
