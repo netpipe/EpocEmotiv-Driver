@@ -1,16 +1,34 @@
+#include <stdio.h>
+#include <string.h>
 #include "hidapi/hidapi.h"
 #include "mcrypt/mcrypt.h"
+
+//gcc epoc_demo.c -lmcrypt -L./ -lhidapi
+//export DYLD_LIBRARY_PATH=./
+
+//#if defined(__APPLE__) && HID_API_VERSION >= HID_API_MAKE_VERSION(0, 12, 0)
+//#include "hidapi_darwin.h"
+//#endif
+
+/*
+ * epoc_demo.c
+ *
+ * Emotiv EPOC Model 1.0 demo
+ * macOS
+ * hidapi + libmcrypt
+ *
+ * Based on original Emokit decoder.
+ */
+ 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <wchar.h>
-#include "lsl.h"
-
+ 
 #define VID 0x1234
 #define PID 0xED02
- // gcc epoc_demo.c lsl.c -lmcrypt -L./ -lhidapi -I/Users/macbook2015/Downloads/liblsl-dev/include -F/Users/macbook2015/Downloads/liblsl-dev/ -framework lsl
- 
+ 
 /* ---------------------------------------------------- */
 /* EEG bit masks (original Emokit)                      */
 /* ---------------------------------------------------- */
@@ -35,40 +53,41 @@ const unsigned char FC5_MASK[14] ={28,29,30,31,16,17,18,19,20,21,22,23,8,9};
 typedef struct
 {
     MCRYPT td;
+ 
     unsigned char key[16];
+ 
     unsigned char raw[32];
     unsigned char frame[32];
+ 
     unsigned char block[16];
+ 
 } Epoc;
-
-typedef struct
-{
-    uint16_t eeg[14];
-
-    int16_t gyro_x;
-    int16_t gyro_y;
-
-    uint8_t counter;
-    uint8_t battery;
-
-} EpocSample;
-
-
+ 
+/* ---------------------------------------------------- */
+ 
 int get_level(unsigned char frame[32], const unsigned char bits[14])
 {
     signed char i;
     char b,o;
     int level=0;
-    
+ 
     for(i=13;i>=0;i--)
     {
         level <<= 1;
+ 
         b=(bits[i]/8)+1;
         o=bits[i]%8;
+ 
         level |= (frame[b]>>o)&1;
     }
+ 
     return level;
-} 
+}
+ 
+/* ---------------------------------------------------- */
+/* Original Emokit serial->AES key                      */
+/* ---------------------------------------------------- */
+ 
 void make_crypto_key(const char *serial, unsigned char key[16])
 {
     size_t l = strlen(serial);
@@ -108,7 +127,21 @@ void make_crypto_key(const char *serial, unsigned char key[16])
     key[14] = s4;
     key[15] = 'P';
 }
-
+ 
+/* ---------------------------------------------------- */
+ 
+void print_key(unsigned char key[16])
+{
+    printf("AES KEY:\n");
+ 
+    for(int i=0;i<16;i++)
+        printf("%02X ",key[i]);
+ 
+    printf("\n");
+}
+ 
+/* ---------------------------------------------------- */
+ 
 int crypto_init(Epoc *e)
 {
     e->td = mcrypt_module_open(
@@ -116,51 +149,35 @@ int crypto_init(Epoc *e)
             NULL,
             MCRYPT_ECB,
             NULL);
-
+ 
     if(e->td==MCRYPT_FAILED)
         return -1;
-
+ 
     if(mcrypt_generic_init(e->td,e->key,16,NULL)<0)
         return -1;
-
+ 
     return 0;
 }
-
+ 
+/* ---------------------------------------------------- */
+ 
 void decrypt_frame(Epoc *e,unsigned char *packet)
 {
     memcpy(e->block,packet,16);
+ 
     mdecrypt_generic(e->td,e->block,16);
+ 
     memcpy(e->frame,e->block,16);
+ 
     memcpy(e->block,packet+16,16);
+ 
     mdecrypt_generic(e->td,e->block,16);
+ 
     memcpy(e->frame+16,e->block,16);
 }
- void decode_frame(Epoc *e, EpocSample *s)
-{
-    unsigned char *f = e->frame;
-
-    s->counter = f[0];
-
-    s->eeg[0]  = get_level(f,AF3_MASK);
-    s->eeg[1]  = get_level(f,F7_MASK);
-    s->eeg[2]  = get_level(f,F3_MASK);
-    s->eeg[3]  = get_level(f,FC5_MASK);
-    s->eeg[4]  = get_level(f,T7_MASK);
-    s->eeg[5]  = get_level(f,P7_MASK);
-    s->eeg[6]  = get_level(f,O1_MASK);
-
-    s->eeg[7]  = get_level(f,O2_MASK);
-    s->eeg[8]  = get_level(f,P8_MASK);
-    s->eeg[9]  = get_level(f,T8_MASK);
-    s->eeg[10] = get_level(f,FC6_MASK);
-    s->eeg[11] = get_level(f,F4_MASK);
-    s->eeg[12] = get_level(f,F8_MASK);
-    s->eeg[13] = get_level(f,AF4_MASK);
-
-    s->gyro_x = f[29] - 102;
-    s->gyro_y = f[30] - 104;
-}
-
+ 
+/* ---------------------------------------------------- */
+ 
 hid_device *open_epoc(Epoc *e)
 {
     hid_device *dev;
@@ -169,16 +186,58 @@ hid_device *open_epoc(Epoc *e)
  
 struct hid_device_info *list, *cur;
 
+/* Disable exclusive opens */
+
  dev=hid_open(VID,PID,NULL);
- if (!dev) {
+ 
+//list = hid_enumerate(VID, PID);
+
+//for (cur = list; cur; cur = cur->next)
+//{
+ //   printf("path=%s\n", cur->path);
+ //   printf("interface=%d\n", cur->interface_number);
+ //   printf("usage_page=%04X usage=%04X\n",
+ //          cur->usage_page,
+ //          cur->usage);
+ //   printf("\n");
+//}
+//printf("Before hid_open_path\n");
+//dev = hid_open_path(cur->path);
+//printf("After hid_open_path: %p\n", (void *)dev);
+
+if (!dev) {
     printf("hid_open_path failed\n");
     return NULL;
 }
 
+printf("Before hid_get_serial_number_string\n");
+
+if (hid_get_serial_number_string(dev, wserial, 256) == 0)
+    printf("Got serial\n");
+else
+    printf("Failed to get serial\n");
+
+printf("Before crypto_init\n");
+
+if (crypto_init(e) != 0) {
+    printf("crypto_init failed\n");
+    hid_close(dev);
+    return NULL;
+}
+
 printf("Returning device\n");
-
+//hid_free_enumeration(list);
+//if (!dev)
+//{
+//    printf("receiver not found\n");
+//    return NULL;
+//}
+ 
+//    if(!dev)
+ //       return NULL;
+ 
     memset(wserial,0,sizeof(wserial));
-
+ 
     if(hid_get_serial_number_string(dev,wserial,256)==0)
     {
         printf("Serial: ");
@@ -199,25 +258,35 @@ for (int i = 0; i < 16; i++)
            (unsigned char)serial[i],
            serial[i]);
 }
+ 
         printf("\n");
+ 
         make_crypto_key(serial,e->key);
-       // print_key(e->key);
+ 
+        print_key(e->key);
     }
     else
     {
         printf("Unable to read serial\n");
     }
-    
+ 
     if(crypto_init(e)!=0)
     {
         printf("Crypto init failed\n");
        // hid_close(dev);
         return NULL;
     }
-   lsl_init(serial);
+    
+    
+ 
     return dev;
 }
  
+/* ===================== PART 2 CONTINUES ===================== */
+/* ---------------------------------------------------- */
+/* EEG display                                          */
+/* ---------------------------------------------------- */
+
 void show_frame(Epoc *e)
 {
     unsigned char *f = e->frame;
@@ -248,23 +317,59 @@ void show_frame(Epoc *e)
     printf("Gyro Y %4d\n", f[30] - 104);
 }
 
+/* ---------------------------------------------------- */
+
+void dump_encrypted(unsigned char *p)
+{
+    printf("\nRAW ENCRYPTED:\n");
+
+    for(int i=0;i<32;i++)
+    {
+        printf("%02X ",p[i]);
+
+        if((i&15)==15)
+            printf("\n");
+    }
+}
+
+/* ---------------------------------------------------- */
+
+void dump_decrypted(unsigned char *p)
+{
+    printf("\nRAW DECRYPTED:\n");
+
+    for(int i=0;i<32;i++)
+    {
+        printf("%02X ",p[i]);
+
+        if((i&15)==15)
+            printf("\n");
+    }
+}
+
+/* ---------------------------------------------------- */
+
 int main(void)
 {
     Epoc epoc;
+
     memset(&epoc,0,sizeof(epoc));
+
     if(hid_init())
     {
         printf("hid_init failed\n");
         return 1;
     }
 //hid_darwin_set_open_exclusive(0);
+
     hid_device *dev = open_epoc(&epoc);
+
     if(!dev)
     {
         printf("Unable to open headset\n");
         return 1;
     }
-	hid_set_nonblocking(dev, 0);
+hid_set_nonblocking(dev, 0);
 
 const wchar_t *err = hid_error(dev);
 
@@ -298,7 +403,7 @@ if (!hid_get_product_string(dev, str, 256))
             printf("Read error\n");
             break;
         }
-
+ 
         if(n == 0)
             continue;
  
@@ -308,16 +413,15 @@ if (!hid_get_product_string(dev, str, 256))
             continue;
         }
  
-      //  dump_encrypted(epoc.raw);
+        dump_encrypted(epoc.raw);
+ 
         decrypt_frame(&epoc, epoc.raw);
-     //   dump_decrypted(epoc.frame);
+ 
+        dump_decrypted(epoc.frame);
+ 
         show_frame(&epoc);
-      EpocSample sample;
-
-decode_frame(&epoc,&sample);
-
-lsl_send(&sample);
     }
+
 
     mcrypt_generic_deinit(epoc.td);
     mcrypt_module_close(epoc.td);
