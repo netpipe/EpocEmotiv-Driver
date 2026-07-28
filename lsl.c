@@ -6,6 +6,18 @@
 
 #include <lsl_c.h>
 
+typedef struct
+{
+    uint16_t eeg[14];
+
+    int16_t gyro_x;
+    int16_t gyro_y;
+
+    uint8_t counter;
+    uint8_t battery;
+
+} EpocSample;
+
 static lsl_streaminfo info = NULL;
 static lsl_outlet outlet = NULL;
 
@@ -75,13 +87,13 @@ int lsl_init(const char *serial)
 
     return 0;
 }
-void lsl_send2(const float eeg[14])
+void lsl_send8(const float eeg[14])
 {
     lsl_push_sample_f(outlet,
                       eeg);
 }
 
-void lsl_send3(const float eeg[14])
+void lsl_send4(const float eeg[14])
 {
     static int count = 0;
 
@@ -95,6 +107,36 @@ void lsl_send3(const float eeg[14])
 
     lsl_push_sample_f(outlet, eeg);
 }
+
+void lsl_send(const EpocSample *sample)
+{
+    float eeg[14];
+ 
+    for (int i = 0; i < 14; i++)
+        eeg[i] = (float)sample->eeg[i];
+ 
+    static int count = 0;
+ 
+    if ((count++ & 127) == 0)
+    {
+        printf("sample : ");
+ 
+        for (int i = 0; i < 14; i++)
+            printf("%7u ", sample->eeg[i]);
+ 
+        printf("\n");
+ 
+      //  printf("float  : ");
+ 
+       // for (int i = 0; i < 14; i++)
+        //    printf("%7.1f ", eeg[i]);
+ 
+        printf("\n");
+    }//
+ 
+    lsl_push_sample_f(outlet, eeg);
+}
+
 
 void lsl_close(void)
 {

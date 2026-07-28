@@ -1,6 +1,6 @@
 # EpocEmotiv-Driver
 
-tested working on macos , would assume linux and windows work too without modifications.
+tested working on macos , would assume linux and windows work too without modifications. 
 
 test/epoc_demo.c    gcc epoc_demo.c -lmcrypt -L./ -lhidapi
 

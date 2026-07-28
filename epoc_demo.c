@@ -9,7 +9,10 @@
 
 #define VID 0x1234
 #define PID 0xED02
- // gcc epoc_demo.c lsl.c -lmcrypt -L./ -lhidapi -I/Users/macbook2015/Downloads/liblsl-dev/include -F/Users/macbook2015/Downloads/liblsl-dev/ -framework lsl
+
+//export DYLD_FRAMEWORK_PATH='/Users/macbook2015/Downloads/emokit-c-master/src/untitled folder 3/git/lsl.framework'
+
+// gcc epoc_demo.c lsl.c -lmcrypt -L./ -lhidapi -I/Users/macbook2015/Downloads/liblsl-dev/include -F/Users/macbook2015/Downloads/liblsl-dev/ -framework lsl
  
 /* ---------------------------------------------------- */
 /* EEG bit masks (original Emokit)                      */
@@ -41,17 +44,6 @@ typedef struct
     unsigned char block[16];
 } Epoc;
 
-typedef struct
-{
-    uint16_t eeg[14];
-
-    int16_t gyro_x;
-    int16_t gyro_y;
-
-    uint8_t counter;
-    uint8_t battery;
-
-} EpocSample;
 
 
 int get_level(unsigned char frame[32], const unsigned char bits[14])
@@ -311,7 +303,7 @@ if (!hid_get_product_string(dev, str, 256))
       //  dump_encrypted(epoc.raw);
         decrypt_frame(&epoc, epoc.raw);
      //   dump_decrypted(epoc.frame);
-        show_frame(&epoc);
+      //  show_frame(&epoc);
       EpocSample sample;
 
 decode_frame(&epoc,&sample);
