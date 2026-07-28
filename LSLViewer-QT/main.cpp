@@ -128,62 +128,91 @@ private:
 
         try
         {
-            streams=lsl::resolve_stream("type","EEG",2.0);
+            // Find every visible LSL stream
+            streams = lsl::resolve_streams(2.0);
         }
         catch(...)
         {
-            QMessageBox::critical(
-                        this,
-                        "Error",
-                        "Unable to search for streams.");
+            QMessageBox::critical(this,
+                                  "LSL",
+                                  "Unable to search for LSL streams.");
             return;
         }
 
         if(streams.empty())
         {
-            QMessageBox::information(
-                        this,
-                        "LSL",
-                        "No EEG stream found.");
+            QMessageBox::information(this,
+                                     "LSL",
+                                     "No LSL streams found.");
             return;
         }
+
+        QStringList choices;
+
+        for(size_t i=0;i<streams.size();++i)
+        {
+            const auto &s = streams[i];
+
+            choices << QString("%1   [%2]   %3 ch   %.1f Hz")
+                       .arg(QString::fromStdString(s.name()))
+                       .arg(QString::fromStdString(s.type()))
+                       .arg(s.channel_count())
+                       .arg(s.nominal_srate());
+        }
+
+        bool ok=false;
+
+        QString selected =
+            QInputDialog::getItem(this,
+                                  "Select LSL Stream",
+                                  "Available Streams:",
+                                  choices,
+                                  0,
+                                  false,
+                                  &ok);
+
+        if(!ok)
+            return;
+
+        int index = choices.indexOf(selected);
+
+        if(index < 0)
+            return;
 
         try
         {
-            inlet.reset(new lsl::stream_inlet(streams[0]));
+            inlet.reset(new lsl::stream_inlet(streams[index]));
         }
         catch(...)
         {
-            QMessageBox::critical(
-                        this,
-                        "Error",
-                        "Unable to open stream.");
+            QMessageBox::critical(this,
+                                  "LSL",
+                                  "Unable to open stream.");
             return;
         }
 
-        int channels=streams[0].channel_count();
-
-        latest.assign(channels,0.0);
+        latest.assign(streams[index].channel_count(),0.0);
 
         channelList->clear();
 
-        for(int i=0;i<channels;i++)
-            channelList->addItem("Channel");
+        for(int i=0;i<streams[index].channel_count();++i)
+            channelList->addItem("");
 
-        samples=0;
+        samples = 0;
 
-        running=true;
+        running = true;
 
-        worker=std::thread(&MainWindow::readerThread,this);
+        worker = std::thread(&MainWindow::readerThread,this);
 
         statusLabel->setText(
-                    QString("Connected : %1")
-                    .arg(QString::fromStdString(streams[0].name())));
+            QString("Connected: %1")
+            .arg(QString::fromStdString(streams[index].name())));
 
         connectButton->setEnabled(false);
         disconnectButton->setEnabled(true);
 
-        log("Connected.");
+        log(QString("Connected to '%1'")
+            .arg(QString::fromStdString(streams[index].name())));
     }
 
     void disconnectStream()
