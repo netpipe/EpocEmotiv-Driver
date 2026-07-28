@@ -1,0 +1,98 @@
+/* lsl.c  placement file for streaming LSL info to OpenBCI or other eeg gui's'*/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <lsl_c.h>
+
+static lsl_streaminfo info = NULL;
+static lsl_outlet outlet = NULL;
+
+static const char *names[14] =
+{
+    "AF3",
+    "F7",
+    "F3",
+    "FC5",
+    "T7",
+    "P7",
+    "O1",
+    "O2",
+    "P8",
+    "T8",
+    "FC6",
+    "F4",
+    "F8",
+    "AF4"
+};
+
+int lsl_init(const char *serial)
+{
+    char source_id[64];
+
+    snprintf(source_id,
+             sizeof(source_id),
+             "emotiv-%s",
+             serial);
+
+    info = lsl_create_streaminfo(
+                "Emotiv EPOC",
+                "EEG",
+                14,
+                128.0,
+                cft_float32,
+                source_id);
+
+    if (!info)
+        return -1;
+
+    /* Optional metadata */
+
+    lsl_xml_ptr desc = lsl_get_desc(info);
+
+    lsl_xml_ptr channels =
+        lsl_append_child(desc, "channels");
+
+    for (int i = 0; i < 14; i++)
+    {
+        lsl_xml_ptr ch =
+            lsl_append_child(channels, "channel");
+
+        lsl_append_child_value(ch, "label", names[i]);
+        lsl_append_child_value(ch, "unit", "counts");
+        lsl_append_child_value(ch, "type", "EEG");
+    }
+
+    outlet = lsl_create_outlet(info,
+                               0,      /* default chunk */
+                               360);   /* max buffering */
+
+    if (!outlet)
+        return -1;
+
+    printf("LSL outlet created.\n");
+
+    return 0;
+}
+
+void lsl_send(const float eeg[14])
+{
+    lsl_push_sample_f(outlet,
+                      eeg);
+}
+
+void lsl_close(void)
+{
+    if (outlet)
+    {
+        lsl_destroy_outlet(outlet);
+        outlet = NULL;
+    }
+
+    if (info)
+    {
+        lsl_destroy_streaminfo(info);
+        info = NULL;
+    }
+}
