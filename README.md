@@ -19,3 +19,4 @@ if both lights are stuck on on the dongle unplug it before starting it up it sho
 
 
 
+seems to be slower with the launcher so maybe use the epoc_lsl on its own
