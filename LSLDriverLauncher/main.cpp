@@ -8,11 +8,10 @@
 #include <QProcessEnvironment>
 #include <QCoreApplication>
 #include <QDir>
-#include <QLabe
+#include <QLabel>
 
 
 //install_name_tool \ -change \ /Users/mac/Desktop/brew/opt/hidapi/lib/libhidapi.0.dylib \ @executable_path/libhidapi.0.dylib \ epoc_lsl
-
 
 class Launcher : public QWidget
 {
@@ -50,19 +49,22 @@ public:
         connect(stopButton, &QPushButton::clicked,
                 this, [=](){ stopDriver(); });
 
-        connect(process, &QProcess::readyReadStandardOutput,
-                this, [=]()
-        {
-            log->appendPlainText(
-                QString::fromLocal8Bit(process->readAllStandardOutput()));
-        });
+        process->setStandardOutputFile(QProcess::nullDevice()); //faster
+        process->setStandardErrorFile(QProcess::nullDevice());
 
-        connect(process, &QProcess::readyReadStandardError,
-                this, [=]()
-        {
-            log->appendPlainText(
-                QString::fromLocal8Bit(process->readAllStandardError()));
-        });
+//        connect(process, &QProcess::readyReadStandardOutput,
+//                this, [=]()
+//        {
+//            log->appendPlainText(
+//                QString::fromLocal8Bit(process->readAllStandardOutput()));
+//        });
+
+//        connect(process, &QProcess::readyReadStandardError,
+//                this, [=]()
+//        {
+//            log->appendPlainText(
+//                QString::fromLocal8Bit(process->readAllStandardError()));
+//        });
 
         connect(process,
                 QOverload<int,QProcess::ExitStatus>::of(&QProcess::finished),
